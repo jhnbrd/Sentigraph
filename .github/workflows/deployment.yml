@@ -1,0 +1,29 @@
+name: Deployment Status
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub Deployment
+        uses: chrnorm/deployment-action@v2
+        id: deployment
+        with:
+          token: "${{ secrets.GITHUB_TOKEN }}"
+          environment-url: "https://sentigraph.jhnbrd.com"
+          environment: production
+          description: "Live Broadside Service on Home Server via Cloudflare Tunnel"
+
+      - name: Update Deployment Status to Success
+        if: success()
+        uses: chrnorm/deployment-status@v2
+        with:
+          token: "${{ secrets.GITHUB_TOKEN }}"
+          state: "success"
+          deployment-id: "${{ steps.deployment.outputs.deployment_id }}"
+          environment-url: "https://sentigraph.jhnbrd.com"
