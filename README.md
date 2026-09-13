@@ -41,7 +41,7 @@ Visitor on your GitHub README ──► Clicks Card ──► Public Submission 
 Once logged in to `/dashboard`, copy your ready-to-paste Markdown embed snippet:
 
 ```markdown
-[![Sentigraph](http://127.0.0.1:8072/api/card/YOUR_USERNAME)](http://127.0.0.1:8072/u/YOUR_USERNAME)
+[![Sentigraph](https://sentigraph.jhnbrd.com/api/card/YOUR_USERNAME)](https://sentigraph.jhnbrd.com/u/YOUR_USERNAME)
 ```
 
 Add this snippet anywhere in your GitHub profile repository (`username/username/README.md`). 

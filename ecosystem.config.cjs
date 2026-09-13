@@ -9,7 +9,8 @@ module.exports = {
       max_memory_restart: '50M',
       env: {
         NODE_ENV: 'production',
-        PORT: 8072
+        PORT: 8072,
+        PUBLIC_ORIGIN: 'https://sentigraph.jhnbrd.com'
       }
     }
   ]

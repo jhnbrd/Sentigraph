@@ -758,9 +758,9 @@ app.get('/dashboard', (c) => {
 
   // Authenticated Curator Dashboard
   const allSentiments = queries.getAllSentimentsForUser(user.id);
-  const host = c.req.header('host') || '127.0.0.1:8072';
-  const proto = c.req.header('x-forwarded-proto') || 'http';
-  const baseUrl = `${proto}://${host}`;
+  const forwardedHost = c.req.header('x-forwarded-host') || c.req.header('host');
+  const proto = c.req.header('x-forwarded-proto') || (forwardedHost?.includes('sentigraph.jhnbrd.com') ? 'https' : 'http');
+  const baseUrl = process.env.PUBLIC_ORIGIN || (forwardedHost && !forwardedHost.includes('127.0.0.1') ? `${proto}://${forwardedHost}` : 'https://sentigraph.jhnbrd.com');
   const embedSnippet = `[![Sentigraph](${baseUrl}/api/card/${user.username}?theme=${user.theme_variant}&mode=${user.color_mode}&feed=${user.feed_mode})](${baseUrl}/u/${user.username})`;
 
   const dashboardHtml = `<!DOCTYPE html>
