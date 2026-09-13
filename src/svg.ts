@@ -13,6 +13,41 @@ export function escapeXml(str: string): string {
 }
 
 /**
+ * Word-wraps text into multiple lines based on maximum character width per line.
+ * Avoids breaking words across lines.
+ */
+export function wrapText(text: string, maxCharsPerLine: number = 44, maxLines: number = 3): string[] {
+  const words = text.trim().split(/\s+/);
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    if (!currentLine) {
+      currentLine = word;
+    } else if ((currentLine + ' ' + word).length <= maxCharsPerLine) {
+      currentLine += ' ' + word;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
+      if (lines.length === maxLines - 1) {
+        break;
+      }
+    }
+  }
+
+  if (currentLine) {
+    // If there were remaining words beyond maxLines, append ellipsis to last line
+    const remainingWords = words.slice(words.indexOf(currentLine.split(/\s+/)[0]) + currentLine.split(/\s+/).length);
+    if (remainingWords.length > 0 && lines.length === maxLines - 1) {
+      currentLine += '…';
+    }
+    lines.push(currentLine);
+  }
+
+  return lines.slice(0, maxLines);
+}
+
+/**
  * Formats ISO timestamp to concise editorial date (e.g. "OCT 24").
  */
 export function formatTimestamp(dateStr: string): string {
@@ -88,10 +123,8 @@ const PALETTES: Record<ColorMode, ThemePalette> = {
  * Supports:
  * - 3 minimalist layout options (broadside, minimal, modern)
  * - Dark & Light broadsheet canvas modes
- * - Smooth CSS infinite marquee motion for overflowing sentiments so quotes are NEVER cut off.
- * - Dedicated metadata column to prevent overlapping text.
- * 
- * Target dimensions: 560px × 380px.
+ * - Natural multi-line text wrapping so full sentiments are read clearly without unnatural animations
+ * - Dynamic card height adapting to content while preserving strict margins and dividers
  */
 export function renderCardSvg({
   username,
@@ -104,15 +137,11 @@ export function renderCardSvg({
   const safeMode = escapeXml(feedMode.toUpperCase());
   const p = PALETTES[colorMode] || PALETTES.dark;
 
-  // Fill array to guarantee 5 rows
+  // Guarantee 5 rows
   const rows: Array<Sentiment | null> = [...sentiments];
   while (rows.length < 5) {
     rows.push(null);
   }
-
-  const startY = 60;
-  const rowHeight = 54;
-  const quoteViewportWidth = 350; // Visible window width for quote text
 
   const fontQuote =
     themeVariant === 'modern'
@@ -122,121 +151,106 @@ export function renderCardSvg({
   const quoteStyle = themeVariant === 'modern' ? 'normal' : 'italic';
   const quoteWeight = themeVariant === 'modern' ? '500' : 'normal';
   const quoteSize = themeVariant === 'modern' ? '13px' : '15px';
+  const lineHeight = themeVariant === 'modern' ? 18 : 20;
 
-  // Build rows and collect keyframes for overflowing text
-  const keyframes: string[] = [];
+  // Max characters before wrapping to a new line in quote column
+  const maxChars = themeVariant === 'modern' ? 46 : 43;
 
-  const rowElements = rows.slice(0, 5).map((sentiment, index) => {
-    const y = startY + index * rowHeight;
-    const dividerY = y + rowHeight;
+  // Pre-calculate heights and positions for all 5 rows
+  let currentY = 58;
+  const renderedRows: string[] = [];
+
+  rows.slice(0, 5).forEach((sentiment, index) => {
     const num = String(index + 1).padStart(2, '0');
 
     if (!sentiment) {
-      return `
+      const rowHeight = 46;
+      const textY = currentY + 28;
+      const dividerY = currentY + rowHeight;
+
+      renderedRows.push(`
     <!-- Row ${index + 1} (Empty Slot) -->
-    <g transform="translate(0, ${y})">
-      <text x="24" y="32" class="num">${num}</text>
-      <text x="56" y="32" class="quote empty">— Awaiting inscription —</text>
-      <text x="536" y="32" text-anchor="end" class="meta">—</text>
+    <g>
+      <text x="24" y="${textY}" class="num">${num}</text>
+      <text x="56" y="${textY}" class="quote empty">— Awaiting inscription —</text>
+      <text x="536" y="${textY}" text-anchor="end" class="meta">—</text>
     </g>
     ${index < 4 && themeVariant !== 'minimal' ? `<line x1="24" y1="${dividerY}" x2="536" y2="${dividerY}" stroke="${p.divider}" stroke-width="1" />` : ''}
-      `.trim();
+      `.trim());
+
+      currentY += rowHeight;
+      return;
     }
 
     const safeAlias = escapeXml(sentiment.author_alias);
-    const safeContent = escapeXml(sentiment.content);
     const safeDate = formatTimestamp(sentiment.created_at);
     const isPinned = sentiment.is_pinned === 1;
 
-    // Approximate character length threshold where text exceeds 350px width
-    // At ~15px serif font, average character is ~7.5px. ~46 characters fill 350px.
-    const isOverflowing = sentiment.content.length > 46;
+    // Wrap quote text into up to 3 lines
+    const lines = wrapText(sentiment.content, maxChars, 3);
+    const numLines = lines.length;
 
-    let quoteSvg: string;
+    // Calculate row height based on line count:
+    // 1 line: 48px, 2 lines: 66px, 3 lines: 84px
+    const rowHeight = 32 + numLines * lineHeight;
+    const dividerY = currentY + rowHeight;
+    const firstLineY = currentY + 24;
 
-    if (isOverflowing) {
-      const animName = `marquee-${index + 1}`;
-      // Calculate travel distance based on character count:
-      // total text width approx: chars * 7.8px
-      // travel distance = textWidth - viewportWidth + buffer
-      const estimatedWidth = Math.round(sentiment.content.length * 8.2);
-      const shiftX = -(estimatedWidth - quoteViewportWidth + 24);
-      // Duration proportional to length (smooth readable crawl ~14-22s)
-      const duration = Math.min(24, Math.max(12, Math.round(sentiment.content.length * 0.16)));
+    // Format multiline tspans
+    const tspans = lines.map((line, lineIdx) => {
+      const isFirst = lineIdx === 0;
+      const isLast = lineIdx === numLines - 1;
+      const contentWithQuotes = `${isFirst ? '“' : ''}${escapeXml(line)}${isLast ? '”' : ''}`;
+      if (lineIdx === 0) {
+        return `<tspan x="56" y="${firstLineY}">${contentWithQuotes}</tspan>`;
+      }
+      return `<tspan x="56" dy="${lineHeight}">${contentWithQuotes}</tspan>`;
+    }).join('');
 
-      keyframes.push(`
-    @keyframes ${animName} {
-      0%, 15% { transform: translateX(0px); }
-      75%, 85% { transform: translateX(${shiftX}px); }
-      95%, 100% { transform: translateX(0px); }
-    }
-    .anim-row-${index + 1} {
-      animation: ${animName} ${duration}s ease-in-out infinite alternate;
-    }
-      `.trim());
-
-      quoteSvg = `
-      <g clip-path="url(#quote-clip-${index + 1})">
-        <g class="anim-row-${index + 1}">
-          <text x="0" y="32" class="quote">“${safeContent}”</text>
-        </g>
-      </g>`;
-    } else {
-      quoteSvg = `
-      <text x="0" y="32" class="quote">“${safeContent}”</text>`;
-    }
-
-    return `
-    <!-- Row ${index + 1} -->
-    <g transform="translate(0, ${y})">
-      <text x="24" y="32" class="num">${num}</text>
-      <!-- Quote Column (x: 56 to 406) -->
-      <g transform="translate(56, 0)">
-        ${quoteSvg}
-      </g>
-      <!-- Metadata Column (x: 412 to 536) -->
-      <text x="536" y="32" text-anchor="end" class="meta">
+    renderedRows.push(`
+    <!-- Row ${index + 1} (${numLines} lines) -->
+    <g>
+      <text x="24" y="${firstLineY}" class="num">${num}</text>
+      <text class="quote">
+        ${tspans}
+      </text>
+      <text x="536" y="${firstLineY}" text-anchor="end" class="meta">
         ${isPinned ? `<tspan fill="${p.star}" font-weight="600">★ </tspan>` : ''}@${safeAlias} <tspan fill="${p.pipe}">|</tspan> ${safeDate}
       </text>
     </g>
     ${index < 4 && themeVariant !== 'minimal' ? `<line x1="24" y1="${dividerY}" x2="536" y2="${dividerY}" stroke="${p.divider}" stroke-width="1" />` : ''}
-    `.trim();
-  }).join('\n    ');
+    `.trim());
 
-  // Clip paths for each row so moving text stays neatly bounded inside the quote column
-  const clipPaths = [0, 1, 2, 3, 4].map((i) => {
-    const y = startY + i * rowHeight;
-    return `<clipPath id="quote-clip-${i + 1}"><rect x="0" y="0" width="${quoteViewportWidth}" height="54" /></clipPath>`;
-  }).join('\n    ');
+    currentY += rowHeight;
+  });
 
-  // Emblem icon in header
+  // Calculate total card height dynamically based on rendered rows
+  const footerLineY = currentY + 12;
+  const footerTextY = footerLineY + 20;
+  const totalHeight = footerTextY + 20;
+
+  // Header emblem color
   const emblemColor = p.headerTitle;
   const showEmblem = themeVariant !== 'minimal';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 380" width="560" height="380" role="img" aria-label="Sentigraph - ${safeUsername}">
-  <defs>
-    ${clipPaths}
-  </defs>
-
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 ${totalHeight}" width="560" height="${totalHeight}" role="img" aria-label="Sentigraph - ${safeUsername}">
   <style>
     .bg { fill: ${p.bg}; }
     .card-border { stroke: ${p.border}; stroke-width: 1; fill: none; }
     .header-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Geist Sans", sans-serif; font-size: 11px; font-weight: 700; fill: ${p.headerTitle}; letter-spacing: 2px; text-transform: uppercase; }
     .header-badge { font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace; font-size: 9px; fill: ${p.headerBadge}; letter-spacing: 1.5px; text-transform: uppercase; }
     .num { font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace; font-size: 11px; fill: ${p.num}; letter-spacing: 0.5px; }
-    .quote { font-family: ${fontQuote}; font-size: ${quoteSize}; font-style: ${quoteStyle}; font-weight: ${quoteWeight}; fill: ${p.quote}; white-space: nowrap; }
+    .quote { font-family: ${fontQuote}; font-size: ${quoteSize}; font-style: ${quoteStyle}; font-weight: ${quoteWeight}; fill: ${p.quote}; }
     .quote.empty { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-style: normal; font-size: 12px; fill: ${p.quoteEmpty}; letter-spacing: 0.5px; }
     .meta { font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace; font-size: 10px; fill: ${p.meta}; letter-spacing: 0.5px; }
     .footer-text { font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace; font-size: 9px; fill: ${p.footerText}; letter-spacing: 1.5px; text-transform: uppercase; }
     .footer-link { font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace; font-size: 9px; fill: ${p.footerLink}; letter-spacing: 1px; }
-
-    ${keyframes.join('\n    ')}
   </style>
 
   <!-- Background Surface -->
-  <rect width="560" height="380" class="bg" rx="2" ry="2" />
-  <rect x="0.5" y="0.5" width="559" height="379" class="card-border" rx="2" ry="2" />
+  <rect width="560" height="${totalHeight}" class="bg" rx="2" ry="2" />
+  <rect x="0.5" y="0.5" width="559" height="${totalHeight - 1}" class="card-border" rx="2" ry="2" />
 
   <!-- Broadside Masthead / Header -->
   <g transform="translate(24, 24)">
@@ -258,12 +272,12 @@ export function renderCardSvg({
 
   <!-- 5 Sentiment Rows -->
   <g id="sentiments-group">
-    ${rowElements}
+    ${renderedRows.join('\n    ')}
   </g>
 
   <!-- Broadside Footer -->
-  <line x1="24" y1="340" x2="536" y2="340" stroke="${p.divider}" stroke-width="1" />
-  <g transform="translate(24, 360)">
+  <line x1="24" y1="${footerLineY}" x2="536" y2="${footerLineY}" stroke="${p.divider}" stroke-width="1" />
+  <g transform="translate(24, ${footerTextY})">
     <text x="0" y="0" class="footer-text">BROADSIDE PRESS <tspan fill="${p.pipe}">■</tspan> LIVE INSCRIPTION SURFACE</text>
     <text x="512" y="0" text-anchor="end" class="footer-link">CLICK CARD TO LEAVE A NOTE →</text>
   </g>
