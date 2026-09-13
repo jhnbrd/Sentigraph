@@ -10,11 +10,13 @@ const app = new Hono();
 // Simple in-memory session map: token -> userId (low memory overhead, perfect for single host)
 const sessions = new Map<string, { userId: string; expires: number }>();
 
-function createSession(userId: string): string {
+function createSession(userId: string, rememberMe: boolean = false): { token: string; maxAgeSeconds: number } {
   const token = randomBytes(24).toString('hex');
-  const expires = Date.now() + 1000 * 60 * 60 * 24 * 7; // 7 days
+  // 30 days if Remember Me, else 24 hours
+  const maxAgeSeconds = rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 24;
+  const expires = Date.now() + maxAgeSeconds * 1000;
   sessions.set(token, { userId, expires });
-  return token;
+  return { token, maxAgeSeconds };
 }
 
 function getUserIdFromSession(token?: string): string | null {
@@ -463,7 +465,7 @@ app.get('/u/:username', (c) => {
 
 // Auth: Register / Login API
 app.post('/api/auth/register', async (c) => {
-  const { username, password } = await c.req.json();
+  const { username, password, rememberMe } = await c.req.json();
   if (!username || !password || username.length < 2 || password.length < 6) {
     return c.json({ error: 'Username must be >= 2 chars, password >= 6 chars' }, 400);
   }
@@ -475,12 +477,12 @@ app.post('/api/auth/register', async (c) => {
 
   const hash = hashPassword(password);
   const newUser = queries.createUser(username, hash);
-  const token = createSession(newUser.id);
+  const { token, maxAgeSeconds } = createSession(newUser.id, !!rememberMe);
 
   setCookie(c, 'sentigraph_session', token, {
     httpOnly: true,
     path: '/',
-    maxAge: 60 * 60 * 24 * 7,
+    maxAge: maxAgeSeconds,
     sameSite: 'Lax'
   });
 
@@ -488,18 +490,18 @@ app.post('/api/auth/register', async (c) => {
 });
 
 app.post('/api/auth/login', async (c) => {
-  const { username, password } = await c.req.json();
+  const { username, password, rememberMe } = await c.req.json();
   const user = queries.getUserByUsername(username);
 
   if (!user || !verifyPassword(password, user.password_hash)) {
     return c.json({ error: 'Invalid credentials' }, 401);
   }
 
-  const token = createSession(user.id);
+  const { token, maxAgeSeconds } = createSession(user.id, !!rememberMe);
   setCookie(c, 'sentigraph_session', token, {
     httpOnly: true,
     path: '/',
-    maxAge: 60 * 60 * 24 * 7,
+    maxAge: maxAgeSeconds,
     sameSite: 'Lax'
   });
 
@@ -692,30 +694,49 @@ app.get('/dashboard', (c) => {
         <p>AUTHENTICATION / BROADSIDE REGISTRY</p>
       </div>
     </div>
-    <div>
+    <form id="auth-form" onsubmit="event.preventDefault(); handleAuth('/api/auth/login');">
       <label for="u">Username</label>
-      <input type="text" id="u" placeholder="e.g. your_github_handle" autocomplete="username" />
+      <input type="text" id="u" placeholder="e.g. your_github_handle" autocomplete="username" required />
       <label for="p">Password</label>
-      <input type="password" id="p" placeholder="••••••••" autocomplete="current-password" />
+      <input type="password" id="p" placeholder="••••••••" autocomplete="current-password" required />
+
+      <div style="display: flex; align-items: center; gap: 8px; margin-top: 14px;">
+        <input type="checkbox" id="remember" style="width: auto; cursor: pointer;" checked />
+        <label for="remember" style="margin: 0; font-size: 11px; cursor: pointer; text-transform: none; color: #A3A3A3; letter-spacing: 0.5px;">
+          Remember this terminal session (30 days)
+        </label>
+      </div>
+
       <div class="btn-group">
-        <button class="btn-primary" onclick="handleAuth('/api/auth/login')">Sign In</button>
-        <button class="btn-secondary" onclick="handleAuth('/api/auth/register')">Register</button>
+        <button type="submit" class="btn-primary" id="sign-in-btn">Sign In</button>
+        <button type="button" class="btn-secondary" onclick="handleAuth('/api/auth/register')">Register</button>
       </div>
       <div id="msg" class="msg"></div>
+    </form>
+
+    <!-- Essential Editorial Cookie Notice -->
+    <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #1C1C1C; font-family: 'Geist Mono', monospace; font-size: 9px; color: #525252; line-height: 1.5; text-align: center;">
+      NOTICE: Sentigraph uses strictly essential HTTP session cookies for authentication. Zero tracking or third-party telemetry. By continuing, you agree to their use.
     </div>
   </div>
   <script>
     async function handleAuth(url) {
       const username = document.getElementById('u').value.trim();
       const password = document.getElementById('p').value;
+      const rememberMe = document.getElementById('remember').checked;
       const msg = document.getElementById('msg');
+      if (!username || !password) {
+        msg.style.color = '#F87171';
+        msg.textContent = '✗ Please provide both username and password';
+        return;
+      }
       msg.style.color = '#737373';
       msg.textContent = 'Transmitting...';
       try {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
+          body: JSON.stringify({ username, password, rememberMe })
         });
         const data = await res.json();
         if (res.ok) {
