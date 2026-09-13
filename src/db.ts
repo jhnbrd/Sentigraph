@@ -187,7 +187,7 @@ export const queries = {
   addSentiment(userId: string, authorAlias: string, content: string): Sentiment {
     const id = randomUUID();
     const cleanAlias = (authorAlias || 'Anonymous').trim().slice(0, 32) || 'Anonymous';
-    const cleanContent = content.trim().slice(0, 140);
+    const cleanContent = content.trim().slice(0, 180);
     insertSentimentStmt.run(id, userId, cleanAlias, cleanContent);
     return {
       id,

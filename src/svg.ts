@@ -13,19 +13,6 @@ export function escapeXml(str: string): string {
 }
 
 /**
- * Programmatically truncates text at word boundaries to avoid row boundary overflow.
- */
-export function truncateText(text: string, maxLength: number = 52): string {
-  if (text.length <= maxLength) return text;
-  const sub = text.slice(0, maxLength);
-  const lastSpace = sub.lastIndexOf(' ');
-  if (lastSpace > 20) {
-    return sub.slice(0, lastSpace).trim() + '…';
-  }
-  return sub.trim() + '…';
-}
-
-/**
  * Formats ISO timestamp to concise editorial date (e.g. "OCT 24").
  */
 export function formatTimestamp(dateStr: string): string {
@@ -98,7 +85,11 @@ const PALETTES: Record<ColorMode, ThemePalette> = {
 /**
  * High-performance, zero-headless-browser SVG card renderer adhering to
  * broadside typography, Swiss modernist grid discipline, and strict editorial palette.
- * Supports 3 minimalist layout options (broadside, minimal, modern) and dark/light modes.
+ * Supports:
+ * - 3 minimalist layout options (broadside, minimal, modern)
+ * - Dark & Light broadsheet canvas modes
+ * - Smooth CSS infinite marquee motion for overflowing sentiments so quotes are NEVER cut off.
+ * - Dedicated metadata column to prevent overlapping text.
  * 
  * Target dimensions: 560px × 380px.
  */
@@ -121,6 +112,7 @@ export function renderCardSvg({
 
   const startY = 60;
   const rowHeight = 54;
+  const quoteViewportWidth = 350; // Visible window width for quote text
 
   const fontQuote =
     themeVariant === 'modern'
@@ -130,6 +122,9 @@ export function renderCardSvg({
   const quoteStyle = themeVariant === 'modern' ? 'normal' : 'italic';
   const quoteWeight = themeVariant === 'modern' ? '500' : 'normal';
   const quoteSize = themeVariant === 'modern' ? '13px' : '15px';
+
+  // Build rows and collect keyframes for overflowing text
+  const keyframes: string[] = [];
 
   const rowElements = rows.slice(0, 5).map((sentiment, index) => {
     const y = startY + index * rowHeight;
@@ -149,15 +144,57 @@ export function renderCardSvg({
     }
 
     const safeAlias = escapeXml(sentiment.author_alias);
-    const safeContent = escapeXml(truncateText(sentiment.content, themeVariant === 'modern' ? 50 : 54));
+    const safeContent = escapeXml(sentiment.content);
     const safeDate = formatTimestamp(sentiment.created_at);
     const isPinned = sentiment.is_pinned === 1;
+
+    // Approximate character length threshold where text exceeds 350px width
+    // At ~15px serif font, average character is ~7.5px. ~46 characters fill 350px.
+    const isOverflowing = sentiment.content.length > 46;
+
+    let quoteSvg: string;
+
+    if (isOverflowing) {
+      const animName = `marquee-${index + 1}`;
+      // Calculate travel distance based on character count:
+      // total text width approx: chars * 7.8px
+      // travel distance = textWidth - viewportWidth + buffer
+      const estimatedWidth = Math.round(sentiment.content.length * 8.2);
+      const shiftX = -(estimatedWidth - quoteViewportWidth + 24);
+      // Duration proportional to length (smooth readable crawl ~14-22s)
+      const duration = Math.min(24, Math.max(12, Math.round(sentiment.content.length * 0.16)));
+
+      keyframes.push(`
+    @keyframes ${animName} {
+      0%, 15% { transform: translateX(0px); }
+      75%, 85% { transform: translateX(${shiftX}px); }
+      95%, 100% { transform: translateX(0px); }
+    }
+    .anim-row-${index + 1} {
+      animation: ${animName} ${duration}s ease-in-out infinite alternate;
+    }
+      `.trim());
+
+      quoteSvg = `
+      <g clip-path="url(#quote-clip-${index + 1})">
+        <g class="anim-row-${index + 1}">
+          <text x="0" y="32" class="quote">“${safeContent}”</text>
+        </g>
+      </g>`;
+    } else {
+      quoteSvg = `
+      <text x="0" y="32" class="quote">“${safeContent}”</text>`;
+    }
 
     return `
     <!-- Row ${index + 1} -->
     <g transform="translate(0, ${y})">
       <text x="24" y="32" class="num">${num}</text>
-      <text x="56" y="32" class="quote">“${safeContent}”</text>
+      <!-- Quote Column (x: 56 to 406) -->
+      <g transform="translate(56, 0)">
+        ${quoteSvg}
+      </g>
+      <!-- Metadata Column (x: 412 to 536) -->
       <text x="536" y="32" text-anchor="end" class="meta">
         ${isPinned ? `<tspan fill="${p.star}" font-weight="600">★ </tspan>` : ''}@${safeAlias} <tspan fill="${p.pipe}">|</tspan> ${safeDate}
       </text>
@@ -166,23 +203,35 @@ export function renderCardSvg({
     `.trim();
   }).join('\n    ');
 
+  // Clip paths for each row so moving text stays neatly bounded inside the quote column
+  const clipPaths = [0, 1, 2, 3, 4].map((i) => {
+    const y = startY + i * rowHeight;
+    return `<clipPath id="quote-clip-${i + 1}"><rect x="0" y="0" width="${quoteViewportWidth}" height="54" /></clipPath>`;
+  }).join('\n    ');
+
   // Emblem icon in header
   const emblemColor = p.headerTitle;
   const showEmblem = themeVariant !== 'minimal';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 380" width="560" height="380" role="img" aria-label="Sentigraph - ${safeUsername}">
+  <defs>
+    ${clipPaths}
+  </defs>
+
   <style>
     .bg { fill: ${p.bg}; }
     .card-border { stroke: ${p.border}; stroke-width: 1; fill: none; }
     .header-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Geist Sans", sans-serif; font-size: 11px; font-weight: 700; fill: ${p.headerTitle}; letter-spacing: 2px; text-transform: uppercase; }
     .header-badge { font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace; font-size: 9px; fill: ${p.headerBadge}; letter-spacing: 1.5px; text-transform: uppercase; }
     .num { font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace; font-size: 11px; fill: ${p.num}; letter-spacing: 0.5px; }
-    .quote { font-family: ${fontQuote}; font-size: ${quoteSize}; font-style: ${quoteStyle}; font-weight: ${quoteWeight}; fill: ${p.quote}; }
+    .quote { font-family: ${fontQuote}; font-size: ${quoteSize}; font-style: ${quoteStyle}; font-weight: ${quoteWeight}; fill: ${p.quote}; white-space: nowrap; }
     .quote.empty { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-style: normal; font-size: 12px; fill: ${p.quoteEmpty}; letter-spacing: 0.5px; }
     .meta { font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace; font-size: 10px; fill: ${p.meta}; letter-spacing: 0.5px; }
     .footer-text { font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace; font-size: 9px; fill: ${p.footerText}; letter-spacing: 1.5px; text-transform: uppercase; }
     .footer-link { font-family: "Geist Mono", "JetBrains Mono", "SF Mono", monospace; font-size: 9px; fill: ${p.footerLink}; letter-spacing: 1px; }
+
+    ${keyframes.join('\n    ')}
   </style>
 
   <!-- Background Surface -->

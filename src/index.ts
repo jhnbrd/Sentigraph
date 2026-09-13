@@ -185,8 +185,8 @@ app.post('/api/sentiment/:username', async (c) => {
       return c.json({ error: 'Sentiment content cannot be blank' }, 400);
     }
 
-    if (content.length > 140) {
-      return c.json({ error: 'Sentiment exceeds 140 character limit' }, 400);
+    if (content.length > 180) {
+      return c.json({ error: 'Sentiment exceeds 180 character limit' }, 400);
     }
 
     const newSentiment = queries.addSentiment(user.id, authorAlias, content);
@@ -383,9 +383,9 @@ app.get('/u/:username', (c) => {
     <p class="intro">Inscribe a note, recommendation, or sentiment to be dynamically set in ink on ${safeUser}’s GitHub README broadside.</p>
 
     <form id="sentiment-form">
-      <label for="content">The Inscription (Max 140 Characters)</label>
-      <textarea id="content" name="content" maxlength="140" placeholder="A sharp mind and a rare craftsman in systems programming..." required></textarea>
-      <div class="counter"><span id="char-count">0</span> / 140</div>
+      <label for="content">The Inscription (Max 180 Characters)</label>
+      <textarea id="content" name="content" maxlength="180" placeholder="A sharp mind and a rare craftsman in systems programming..." required></textarea>
+      <div class="counter"><span id="char-count">0</span> / 180</div>
 
       <label for="author_alias">Your Alias or Handle</label>
       <input type="text" id="author_alias" name="author_alias" maxlength="32" placeholder="e.g. torvalds, Ada, or Anonymous" />

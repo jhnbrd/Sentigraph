@@ -20,7 +20,7 @@
 
 **Sentigraph** gives your GitHub profile an interactive sentiment marquee. It serves a live, dynamically compiled SVG card directly inside your GitHub profile `README.md`.
 
-When someone visits your GitHub profile and clicks the card, they are directed to your public inscription portal where they can leave a short recommendation, endorsement, or note (up to 140 characters). New entries instantly appear on your broadside card.
+When someone visits your GitHub profile and clicks the card, they are directed to your public inscription portal where they can leave a short recommendation, endorsement, or note (up to 180 characters). New entries instantly appear on your broadside card, and overflowing notes smoothly scroll in a continuous marquee motion so no text is ever clipped.
 
 ```text
 Visitor on your GitHub README ──► Clicks Card ──► Public Submission Portal
