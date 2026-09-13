@@ -740,7 +740,7 @@ app.get('/dashboard', (c) => {
   const host = c.req.header('host') || '127.0.0.1:8072';
   const proto = c.req.header('x-forwarded-proto') || 'http';
   const baseUrl = `${proto}://${host}`;
-  const embedSnippet = `[![Sentigraph](${baseUrl}/api/card/${user.username})](${baseUrl}/u/${user.username})`;
+  const embedSnippet = `[![Sentigraph](${baseUrl}/api/card/${user.username}?theme=${user.theme_variant}&mode=${user.color_mode}&feed=${user.feed_mode})](${baseUrl}/u/${user.username})`;
 
   const dashboardHtml = `<!DOCTYPE html>
 <html lang="en">
