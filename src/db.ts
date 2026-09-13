@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import { randomUUID, scryptSync, timingSafeEqual, randomBytes } from 'node:crypto';
 import path from 'node:path';
 
@@ -27,12 +27,14 @@ export interface Sentiment {
 }
 
 const DB_PATH = process.env.DATABASE_PATH || path.resolve(process.cwd(), 'sentigraph.db');
-export const db = new Database(DB_PATH);
+
+// Built-in Native Node.js SQLite (Zero C++ native compilation, works on Node 22+ & 25+)
+export const db = new DatabaseSync(DB_PATH);
 
 // Critical Performance & Concurrency Pragmas
-db.pragma('journal_mode = WAL');
-db.pragma('synchronous = NORMAL');
-db.pragma('foreign_keys = ON');
+db.exec('PRAGMA journal_mode = WAL;');
+db.exec('PRAGMA synchronous = NORMAL;');
+db.exec('PRAGMA foreign_keys = ON;');
 
 // Initialize Database Schema
 db.exec(`
@@ -89,71 +91,71 @@ export function verifyPassword(password: string, combinedHash: string): boolean 
   }
 }
 
-// Prepared Statements for high efficiency and low memory footprint
-const findUserByUsernameStmt = db.prepare<[string], User>(
+// Prepared Statements using native node:sqlite
+const findUserByUsernameStmt = db.prepare(
   'SELECT * FROM users WHERE username = ? COLLATE NOCASE'
 );
 
-const findUserByIdStmt = db.prepare<[string], User>(
+const findUserByIdStmt = db.prepare(
   'SELECT * FROM users WHERE id = ?'
 );
 
-const createUserStmt = db.prepare<[string, string, string, string, string, string]>(
+const createUserStmt = db.prepare(
   'INSERT INTO users (id, username, password_hash, feed_mode, theme_variant, color_mode) VALUES (?, ?, ?, ?, ?, ?)'
 );
 
-const updateUserFeedModeStmt = db.prepare<[string, string]>(
+const updateUserFeedModeStmt = db.prepare(
   'UPDATE users SET feed_mode = ? WHERE id = ?'
 );
 
-const updateUserThemeStmt = db.prepare<[string, string, string]>(
+const updateUserThemeStmt = db.prepare(
   'UPDATE users SET theme_variant = ?, color_mode = ? WHERE id = ?'
 );
 
-const insertSentimentStmt = db.prepare<[string, string, string, string]>(
+const insertSentimentStmt = db.prepare(
   'INSERT INTO sentiments (id, user_id, author_alias, content) VALUES (?, ?, ?, ?)'
 );
 
-const getLatestSentimentsStmt = db.prepare<[string, number], Sentiment>(
+const getLatestSentimentsStmt = db.prepare(
   `SELECT * FROM sentiments 
    WHERE user_id = ? AND is_hidden = 0 
    ORDER BY created_at DESC 
    LIMIT ?`
 );
 
-const getCuratedPinnedStmt = db.prepare<[string], Sentiment>(
+const getCuratedPinnedStmt = db.prepare(
   `SELECT * FROM sentiments 
    WHERE user_id = ? AND is_hidden = 0 AND is_pinned = 1 
    ORDER BY pin_order ASC, created_at DESC 
    LIMIT 5`
 );
 
-const getAllSentimentsForUserStmt = db.prepare<[string], Sentiment>(
+const getAllSentimentsForUserStmt = db.prepare(
   `SELECT * FROM sentiments 
    WHERE user_id = ? 
    ORDER BY is_pinned DESC, pin_order ASC, created_at DESC`
 );
 
-const updateSentimentModerationStmt = db.prepare<[number, string, string]>(
+const updateSentimentModerationStmt = db.prepare(
   'UPDATE sentiments SET is_hidden = ? WHERE id = ? AND user_id = ?'
 );
 
-const updateSentimentPinStmt = db.prepare<[number, number, string, string]>(
+const updateSentimentPinStmt = db.prepare(
   'UPDATE sentiments SET is_pinned = ?, pin_order = ? WHERE id = ? AND user_id = ?'
 );
 
-const deleteSentimentStmt = db.prepare<[string, string]>(
+const deleteSentimentStmt = db.prepare(
   'DELETE FROM sentiments WHERE id = ? AND user_id = ?'
 );
 
 // Typed Query Functions
 export const queries = {
   getUserByUsername(username: string): User | undefined {
-    return findUserByUsernameStmt.get(username);
+    return findUserByUsernameStmt.get(username) as User | undefined;
   },
 
   getUserById(id: string): User | undefined {
-    return findUserByIdStmt.get(id);
+    return findUserByIdStmt.get(id) as User | undefined;
   },
 
   createUser(
@@ -203,7 +205,7 @@ export const queries = {
 
   getSentimentsForCard(userId: string, feedMode: 'latest' | 'curated'): Sentiment[] {
     if (feedMode === 'curated') {
-      const pinned = getCuratedPinnedStmt.all(userId);
+      const pinned = (getCuratedPinnedStmt.all(userId) as unknown) as Sentiment[];
       if (pinned.length >= 5) {
         return pinned.slice(0, 5);
       }
@@ -212,16 +214,16 @@ export const queries = {
       const needed = 5 - pinned.length;
       const pinnedIds = pinned.map((s) => s.id);
       
-      const allLatest = getLatestSentimentsStmt.all(userId, 10);
+      const allLatest = (getLatestSentimentsStmt.all(userId, 10) as unknown) as Sentiment[];
       const backfill = allLatest.filter((s) => !pinnedIds.includes(s.id)).slice(0, needed);
       return [...pinned, ...backfill];
     }
 
-    return getLatestSentimentsStmt.all(userId, 5);
+    return (getLatestSentimentsStmt.all(userId, 5) as unknown) as Sentiment[];
   },
 
   getAllSentimentsForUser(userId: string): Sentiment[] {
-    return getAllSentimentsForUserStmt.all(userId);
+    return (getAllSentimentsForUserStmt.all(userId) as unknown) as Sentiment[];
   },
 
   setHidden(userId: string, sentimentId: string, isHidden: boolean): void {

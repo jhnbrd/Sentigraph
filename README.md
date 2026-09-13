@@ -94,7 +94,7 @@ In the **Curator's Console (`/dashboard`)**, two real-time previews are rendered
 
 - **Zero-Browser Vector Engine**: Direct SVG string construction with XML entity escaping and word-boundary truncation. Zero headless browser dependencies (no Puppeteer/Playwright).
 - **GitHub Camo Proxy Cache Busting**: Sends strict invalidation headers (`Cache-Control: no-cache, no-store, must-revalidate, max-age=0`, `Pragma: no-cache`, `Expires: 0`) to guarantee fresh sentiments.
-- **Engine**: TypeScript, Hono, and `better-sqlite3` in WAL mode.
+- **Engine**: TypeScript, Hono, and native `node:sqlite` in WAL mode (zero native C++ compilation dependencies).
 - **Default Port**: `8072`.
 
 ---
